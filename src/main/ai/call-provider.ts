@@ -56,6 +56,7 @@ import { faseDaEtapa } from '@shared/domain/fase'
 import type { StatusDoTrace } from '@shared/domain/geracao'
 import type { ColetorDaGeracao } from './generation-trace-service'
 import type { ContinuousControlsService } from '../pipeline/continuous-controls-service'
+import { comRestricoes, type Restricao } from '@shared/policies/restricoes'
 
 /** Quem chama: usuário e espaço, para escopo de credencial, auditoria e (na F03) orçamento. */
 export interface AiCallContext {
@@ -120,6 +121,20 @@ export interface AberturaDoConsole {
   }): ColetorDaGeracao
 }
 
+/**
+ * O campo `system` que vai ao adapter, já com o bloco de restrições no topo
+ * (SPEC-Endurecimento-01). Objeto vazio quando não há nada a enviar — o adapter continua
+ * recebendo o campo omitido, e não `system: undefined`.
+ */
+function systemComRestricoes(
+  system: string | undefined,
+  restricoes: readonly Restricao[],
+  workspace: WorkspaceId
+): { readonly system?: string } {
+  const final = comRestricoes(system, restricoes, workspace)
+  return final === undefined ? {} : { system: final }
+}
+
 /** O prazo efetivo: o pedido, quando é um número positivo e menor que o teto; senão, o teto. */
 function prazoDaChamada(pedido: number | undefined): number {
   if (pedido === undefined || !Number.isFinite(pedido) || pedido <= 0) return TIMEOUT_PADRAO_MS
@@ -174,7 +189,14 @@ export class AiCallService {
      * identificador — e seria a segunda contabilidade que o critério 2 proíbe.
      */
     private readonly console?: AberturaDoConsole,
-    private readonly controls?: ContinuousControlsService
+    private readonly controls?: ContinuousControlsService,
+    /**
+     * Registro de restrições persistentes (SPEC-Endurecimento-01). Reinjetado no `system` de
+     * **toda** chamada, aqui no ponto único, para que uma regra de segurança não desapareça
+     * quando o contexto do call site é compactado ou trocado. Ausente ou vazio = `system`
+     * intocado (comportamento anterior). A composição (`index.ts`) passa o seed do sistema.
+     */
+    private readonly restricoes: readonly Restricao[] = []
   ) {}
 
   /**
@@ -471,7 +493,7 @@ export class AiCallService {
       for await (const chunk of adapter.generateStream({
         model,
         prompt: request.prompt,
-        ...(request.system === undefined ? {} : { system: request.system }),
+        ...systemComRestricoes(request.system, this.restricoes, ctx.workspace),
         // A **fase**, derivada da etapa (emenda E1 à SPEC-Fases-03). Derivar aqui e não no call
         // site é o que impede a nona geração de nascer sem isolamento por esquecimento: quem
         // declara a etapa ganha a fase de graça, e `faseDaEtapa` é `Record` completo — uma etapa

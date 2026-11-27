@@ -25,6 +25,11 @@ import type { BudgetLimitsInput } from '@shared/domain/budget'
 import { RoutingService } from '../ai/routing-service'
 import { RoutingRepository } from '../ai/routing-repository'
 import { TIMEOUT_PADRAO_MS } from '@shared/domain/ai'
+import {
+  RESTRICOES_DO_SISTEMA,
+  restricoesPresentes,
+  type Restricao
+} from '@shared/policies/restricoes'
 
 const logCat = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
 vi.mock('../logging/logger', () => ({
@@ -135,7 +140,7 @@ function gate(limites?: Partial<BudgetLimitsInput>, agora?: () => Date): BudgetS
 function servico(
   adapter: AiAdapter,
   budget?: BudgetService,
-  overrides?: { quota?: VerificadorDeQuota }
+  overrides?: { quota?: VerificadorDeQuota; restricoes?: readonly Restricao[] }
 ): InstanceType<typeof AiCallService> {
   const orcamento = budget ?? gate({ dailyLimit: 1000, monthlyLimit: 1000 })
   return new AiCallService(
@@ -165,7 +170,12 @@ function servico(
     // O verificador de quota (SPEC-Entrega-04, critério 12). Ausente por padrão — os testes
     // desta suíte não são sobre quota, e o gate deve ser opcional. Só entra quando o teste o
     // passa explicitamente via override.
-    overrides?.quota
+    overrides?.quota,
+    undefined,
+    undefined,
+    // Registro de restrições (SPEC-Endurecimento-01). Ausente = `system` intocado, que é o
+    // comportamento que o resto desta suíte afirma.
+    overrides?.restricoes
   )
 }
 
@@ -314,6 +324,46 @@ describe('streaming ao chamador (critério 2)', () => {
     // O que atravessa o IPC não pode levar a chave. A asserção é sobre o JSON inteiro porque
     // é isso que o `send` serializa — um campo aninhado escaparia de uma checagem por chave.
     expect(JSON.stringify(eventos)).not.toContain(SEGREDO)
+  })
+})
+
+describe('registro de restrições no ponto único (SPEC-Endurecimento-01)', () => {
+  it('sem registro, o `system` do call site chega intocado ao adapter', async () => {
+    const adapter = adapterFalso(ROTEIRO_OK)
+    await coletar(
+      servico(adapter).call(
+        { provider: 'anthropic', prompt: PROMPT, contextPackId: PACK, system: 'Gere um PRD.' },
+        { userId: USUARIO, workspace: 'jarvis' }
+      )
+    )
+    expect(adapter.recebido?.system).toBe('Gere um PRD.')
+  })
+
+  it('com registro, o adapter recebe o bloco canônico no topo, seguido do `system`', async () => {
+    const adapter = adapterFalso(ROTEIRO_OK)
+    await coletar(
+      servico(adapter, undefined, { restricoes: RESTRICOES_DO_SISTEMA }).call(
+        { provider: 'anthropic', prompt: PROMPT, contextPackId: PACK, system: 'Gere um PRD.' },
+        { userId: USUARIO, workspace: 'jarvis' }
+      )
+    )
+    const system = adapter.recebido?.system
+    expect(restricoesPresentes(system, RESTRICOES_DO_SISTEMA, 'jarvis')).toBe(true)
+    expect(system?.endsWith('Gere um PRD.')).toBe(true)
+  })
+
+  it('com registro e sem `system`, o bloco sozinho vai ao adapter', async () => {
+    // A chamada é do NOA: a credencial do JARVIS não a atende (escopo por espaço).
+    credentials.set(USUARIO, 'noa', 'anthropic', SEGREDO, 'usuario')
+    const adapter = adapterFalso(ROTEIRO_OK)
+    await coletar(
+      servico(adapter, undefined, { restricoes: RESTRICOES_DO_SISTEMA }).call(
+        { provider: 'anthropic', prompt: PROMPT, contextPackId: PACK },
+        { userId: USUARIO, workspace: 'noa' }
+      )
+    )
+    expect(restricoesPresentes(adapter.recebido?.system, RESTRICOES_DO_SISTEMA, 'noa')).toBe(true)
+    expect(adapter.recebido?.system).not.toContain('dados-do-noa-fora-do-jarvis')
   })
 })
 

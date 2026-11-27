@@ -254,6 +254,7 @@ import { closeStorage, initStorage } from './storage'
 import { createTray, destroyTray, revelarJanela } from './tray'
 import { WorkspaceService } from './workspace/workspace-service'
 import { createMainWindow } from './window'
+import { RESTRICOES_DO_SISTEMA } from '@shared/policies/restricoes'
 
 /**
  * Instância única (SPEC-02, critério 6). Precisa vir **antes** de qualquer inicialização:
@@ -590,7 +591,9 @@ if (!app.requestSingleInstanceLock()) {
       contexts,
       quota,
       generationTraces,
-      continuousControls
+      continuousControls,
+      // SPEC-Endurecimento-01: as restrições do sistema vão em toda chamada de IA.
+      RESTRICOES_DO_SISTEMA
     )
 
     // Ponto único de conectores (SPEC-Conectores-01). **Runtime separado** do ponto único de

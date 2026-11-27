@@ -28,3 +28,29 @@ export {
   type PolicyReason,
   type ActionId
 } from './contracts'
+export {
+  RESTRICOES_DO_SISTEMA,
+  INICIO_DO_BLOCO,
+  FIM_DO_BLOCO,
+  blocoDeRestricoes,
+  comRestricoes,
+  removerBloco,
+  restricoesDoEspaco,
+  restricoesPresentes,
+  validarRestricoes,
+  type Restricao,
+  type ProblemaDeRestricao
+} from './restricoes'
+export {
+  DURACAO_MAXIMA_MS,
+  SENSIBILIDADES_FORA_DA_JANELA,
+  abrirJanela,
+  aplicarJanela,
+  janelaVigente,
+  type JanelaDeConfianca,
+  type PedidoDeAbertura,
+  type ResultadoDaAbertura,
+  type MotivoDeRecusaDaJanela,
+  type ContextoDaJanela,
+  type DecisaoComJanela
+} from './janela-de-confianca'
